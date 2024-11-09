@@ -8,3 +8,4 @@ async def start_command_handler(message: types.Message, state: FSMContext):
     greeting_text = f"С возвращением, {from_user.full_name}! Чем могу помочь?"
 
     await message.answer(greeting_text)
+print('test')
