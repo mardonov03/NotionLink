@@ -60,13 +60,13 @@ class Users:
         try:
             async with self.pool.acquire() as conn:
                 categories = await conn.fetch('SELECT category FROM userlinks WHERE userid = $1', userid)
-
-                category_list = list({category['category'] for category in categories})
-
-                return category_list
+                if categories:
+                    category_list = list({category['category'] for category in categories})
+                    return category_list
+                return ['other']
         except Exception as e:
             logger.error(f'error2463467: {e}')
-            return []
+            return ['other']
 
 
 class Tokens:
@@ -105,20 +105,19 @@ class Links:
     def __init__(self, db_pool):
         self.pool = db_pool
 
-    async def add_link(self, user_id: int, link: str):
+    async def add_link(self, user_id: int, link: str, category: str):
         try:
             extracted = tldextract.extract(link)
             domain = extracted.domain + '.' + extracted.suffix if extracted.domain and extracted.suffix else None
 
             async with self.pool.acquire() as conn:
-                await conn.execute('INSERT INTO links (link, source, added_at) VALUES ($1, $2, $3) ON CONFLICT (link) DO NOTHING',link, domain, datetime.datetime.now())
+                await conn.execute('INSERT INTO links (link, source, added_at) VALUES ($1, $2, $3) ON CONFLICT (link) DO NOTHING', link, domain, datetime.datetime.now())
 
                 linkid = await conn.fetchval('SELECT linkid FROM links WHERE link = $1', link)
                 if linkid is None:
                     logger.warning(f"Link '{link}' could not be added or retrieved from the database.")
                     return
 
-                await conn.execute('INSERT INTO userlinks (userid, linkid) VALUES ($1, $2) ON CONFLICT (userid, linkid) DO NOTHING',user_id, linkid)
-
+                await conn.execute('INSERT INTO userlinks (userid, linkid, category) VALUES ($1, $2, $3) ON CONFLICT (userid, linkid) DO NOTHING', user_id, linkid, category)
         except Exception as e:
             logger.error(f"Error saving link '{link}' for user {user_id}: {e}")

@@ -49,7 +49,7 @@ async def init_db(pool):
                         CREATE TABLE IF NOT EXISTS userlinks (
                             userid BIGINT REFERENCES users(userid),
                             linkid BIGINT REFERENCES links(linkid),
-                            category TEXT, -- если будет NULL берем глобальный
+                            category TEXT DEFAULT 'other', -- если будет NULL берем глобальный
                             UNIQUE (userid, linkid)
                         );
                     """)

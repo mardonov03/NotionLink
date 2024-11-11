@@ -20,12 +20,12 @@ def setup() -> Router:
     router.message.register(command_token, Command('token'))
 
     router.message.register(handle_link_selection, StateFilter(UserStages.link_selection))
+    router.message.register(handle_category_selection, StateFilter(UserStages.category_selection))
+    router.message.register(handle_new_category, StateFilter(UserStages.new_category))
 
     router.message.register(
         handle_message_with_links,
         lambda message: message.content_type in {ContentType.TEXT, ContentType.PHOTO, ContentType.VIDEO}
     )
-    router.message.register(handle_category_selection, StateFilter(UserStages.category_selection))
-    router.message.register(handle_new_category, StateFilter(UserStages.new_category))
     return router
 
