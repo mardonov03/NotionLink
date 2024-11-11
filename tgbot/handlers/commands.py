@@ -17,6 +17,8 @@ class UserStages(StatesGroup):
     start = State()
     token = State()
     link_selection = State()
+    category_selection = State()
+    new_category = State()
 
 
 async def start_command_handler(message: types.Message, state: FSMContext, dispatcher):
@@ -31,10 +33,7 @@ async def start_command_handler(message: types.Message, state: FSMContext, dispa
     token = await usermodel.check_token_db(from_user)
     try:
         if token is None:
-            keyboard = ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text='Добавить')], [KeyboardButton(text='Пропустить')]],
-                resize_keyboard=True
-            )
+            keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text='Добавить')], [KeyboardButton(text='Пропустить')]],resize_keyboard=True)
             await message.answer(
                 f'Привет {from_user.first_name}\n\n'
                 'Вы можете добавить свой токен и управлять своим аккаунтом через бот',
@@ -164,3 +163,27 @@ async def handle_link_selection(message: types.Message, state: FSMContext, dispa
         await message.answer("Произошла ошибка при обработке вашего выбора.")
     finally:
         await state.clear()
+
+async def handle_category_selection(message: types.Message, state: FSMContext, dispatcher):
+    usermodel = dispatcher['usermodel']
+    linksmodel = dispatcher['linksmodel']
+    user_id = message.from_user.id
+
+    is_waiting = await usermodel.is_waiting(user_id)
+    if is_waiting:
+        await message.answer('Пожалуйста, дождитесь ответа на предыдущий запрос.')
+        return
+
+    pass
+
+async def handle_new_category(message: types.Message, state: FSMContext, dispatcher):
+    usermodel = dispatcher['usermodel']
+    linksmodel = dispatcher['linksmodel']
+    user_id = message.from_user.id
+
+    is_waiting = await usermodel.is_waiting(user_id)
+    if is_waiting:
+        await message.answer('Пожалуйста, дождитесь ответа на предыдущий запрос.')
+        return
+
+    pass

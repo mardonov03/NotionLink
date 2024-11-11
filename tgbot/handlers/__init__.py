@@ -8,7 +8,7 @@ from tgbot.handlers.commands import (
     UserStages,
     command_token,
     handle_link_selection,
-    handle_message_with_links
+    handle_message_with_links, handle_category_selection, handle_new_category
 )
 
 def setup() -> Router:
@@ -25,6 +25,7 @@ def setup() -> Router:
         handle_message_with_links,
         lambda message: message.content_type in {ContentType.TEXT, ContentType.PHOTO, ContentType.VIDEO}
     )
-
+    router.message.register(handle_category_selection, StateFilter(UserStages.category_selection))
+    router.message.register(handle_new_category, StateFilter(UserStages.new_category))
     return router
 

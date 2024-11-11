@@ -56,7 +56,17 @@ class Users:
         except Exception as e:
             logger.error(f'error2642462: {e}')
 
+    async def get_user_categories(self, userid: int):
+        try:
+            async with self.pool.acquire() as conn:
+                categories = await conn.fetch('SELECT category FROM userlinks WHERE userid = $1', userid)
 
+                category_list = list({category['category'] for category in categories})
+
+                return category_list
+        except Exception as e:
+            logger.error(f'error2463467: {e}')
+            return []
 
 
 class Tokens:
