@@ -2,7 +2,9 @@ import asyncio
 import datetime
 import logging
 import betterlogging as bl
-from notion_client import Client  # Импортируем notion-client
+from notion_client import Client
+import tldextract
+
 
 log_level = logging.INFO
 bl.basic_colorized_config(level=log_level)
@@ -55,6 +57,8 @@ class Users:
             logger.error(f'error2642462: {e}')
 
 
+
+
 class Tokens:
     def __init__(self, db_pool):
         self.pool = db_pool
@@ -93,15 +97,18 @@ class Links:
 
     async def add_link(self, user_id: int, link: str):
         try:
+            extracted = tldextract.extract(link)
+            domain = extracted.domain + '.' + extracted.suffix if extracted.domain and extracted.suffix else None
+
             async with self.pool.acquire() as conn:
-                await conn.execute('INSERT INTO links (link, added_at) VALUES ($1, $2) ON CONFLICT (link) DO NOTHING',link, datetime.datetime.now())
+                await conn.execute('INSERT INTO links (link, source, added_at) VALUES ($1, $2, $3) ON CONFLICT (link) DO NOTHING',link, domain, datetime.datetime.now())
+
                 linkid = await conn.fetchval('SELECT linkid FROM links WHERE link = $1', link)
                 if linkid is None:
                     logger.warning(f"Link '{link}' could not be added or retrieved from the database.")
                     return
 
                 await conn.execute('INSERT INTO userlinks (userid, linkid) VALUES ($1, $2) ON CONFLICT (userid, linkid) DO NOTHING',user_id, linkid)
-                logger.info(f"Link '{link}' added for user {user_id} with linkid {linkid}")
 
         except Exception as e:
             logger.error(f"Error saving link '{link}' for user {user_id}: {e}")

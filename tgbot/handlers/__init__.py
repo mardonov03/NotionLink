@@ -14,16 +14,13 @@ from tgbot.handlers.commands import (
 def setup() -> Router:
     router = Router()
 
-    # Регистрация обработчиков по состояниям
     router.message.register(start_command_handler, CommandStart())
     router.message.register(handle_start, StateFilter(UserStages.start))
     router.message.register(handle_add_token, StateFilter(UserStages.token))
     router.message.register(command_token, Command('token'))
 
-    # Обработчик для выбора ссылок при активном состоянии link_selection
     router.message.register(handle_link_selection, StateFilter(UserStages.link_selection))
 
-    # Основной обработчик для поиска ссылок, если текст или контент типа фото/видео
     router.message.register(
         handle_message_with_links,
         lambda message: message.content_type in {ContentType.TEXT, ContentType.PHOTO, ContentType.VIDEO}

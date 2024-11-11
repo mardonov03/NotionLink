@@ -90,6 +90,7 @@ async def handle_add_token(message: types.Message, state: FSMContext, dispatcher
         await usermodel.update_waiting(message.from_user.id)
         await state.clear()
 
+
 async def handle_message_with_links(message: types.Message, state: FSMContext, dispatcher):
     usermodel = dispatcher['usermodel']
 
@@ -108,6 +109,12 @@ async def handle_message_with_links(message: types.Message, state: FSMContext, d
 
         if not unique_links:
             await message.answer("В сообщении не найдено ссылок.")
+            return
+
+        if len(unique_links) == 1:
+            link = unique_links[0]
+            await dispatcher['linksmodel'].add_link(message.from_user.id, link)
+            await message.answer(f"{link}\n\nуспешно добавлена.")
             return
 
         links_message = "Найдены ссылки:\n" + "\n".join([f"{i + 1}. {link}" for i, link in enumerate(unique_links)])
