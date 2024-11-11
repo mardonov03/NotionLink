@@ -7,7 +7,7 @@ from aiogram.client.bot import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from tgbot.models.models import Users, Tokens, Links
+from tgbot.models.models import Users, Tokens
 from tgbot import handlers
 from tgbot.data import config
 from database import create_pool, init_db
@@ -38,12 +38,10 @@ async def aiogram_on_startup_polling(dispatcher: Dispatcher, bot: Bot) -> None:
         pool = await create_pool()
         token_model = Tokens(db_pool=pool)
         user_model = Users(db_pool=pool)
-        linksmodel = Links(db_pool=pool)
 
         dispatcher['db'] = pool
         dispatcher['usermodel'] = user_model
         dispatcher['tokenmodel'] = token_model
-        dispatcher['linksmodel'] = linksmodel
 
         await init_db(pool)
         await setup_aiogram(dispatcher)

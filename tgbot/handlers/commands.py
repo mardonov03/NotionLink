@@ -83,7 +83,8 @@ async def handle_add_token(message: types.Message, state: FSMContext, dispatcher
         if result:
             await message.answer("Токен успешно добавлен.")
         else:
-            await message.answer("Токен не прошел проверку и запрос был отклонен.")
+            await message.answer("Токен не прошел проверку и запрос был отклонен.\n\n<b>Совет: попробуйте создать страницу вручную с названием (botlinks) и попробуйте заново</b>",parse_mode='HTML')
+
     except Exception as e:
         logger.error(f'error98472652: {e}')
     finally:
@@ -161,10 +162,7 @@ async def handle_link_selection(message: types.Message, state: FSMContext, dispa
         categories = await usermodel.get_user_categories(user_id)
 
         keyboard = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text=f'{i}') for i in categories], [KeyboardButton(text='создать новую')]],
-            resize_keyboard=True
-        )
-
+            keyboard=[[KeyboardButton(text=f'{i}') for i in categories[j:j + 2]] for j in range(0, len(categories), 2)] + [[KeyboardButton(text='создать новую')]], resize_keyboard=True)
         await message.answer(f'В какую категорию вы хотите сохранить выбранные ссылки?', reply_markup=keyboard)
         await state.update_data(selected_links=selected_links)
         await state.set_state(UserStages.category_selection)
@@ -175,7 +173,6 @@ async def handle_link_selection(message: types.Message, state: FSMContext, dispa
 
 async def handle_category_selection(message: types.Message, state: FSMContext, dispatcher):
     usermodel = dispatcher['usermodel']
-    linksmodel = dispatcher['linksmodel']
     user_id = message.from_user.id
 
     is_waiting = await usermodel.is_waiting(user_id)
@@ -192,7 +189,7 @@ async def handle_category_selection(message: types.Message, state: FSMContext, d
             await state.set_state(UserStages.new_category)
         else:
             for link in selected_links:
-                await linksmodel.add_link(user_id, link, category)
+                await usermodel.add_link(message.from_user, link, category, dispatcher)
             await message.answer(f"Выбранные ссылки успешно сохранены в категорию '{category}'.", reply_markup=ReplyKeyboardRemove())
             await state.clear()
     except Exception as e:
@@ -201,7 +198,6 @@ async def handle_category_selection(message: types.Message, state: FSMContext, d
 
 async def handle_new_category(message: types.Message, state: FSMContext, dispatcher):
     usermodel = dispatcher['usermodel']
-    linksmodel = dispatcher['linksmodel']
     user_id = message.from_user.id
 
     is_waiting = await usermodel.is_waiting(user_id)
@@ -214,9 +210,10 @@ async def handle_new_category(message: types.Message, state: FSMContext, dispatc
         selected_links = data.get("selected_links", [])
 
         for link in selected_links:
-            await linksmodel.add_link(user_id, link, new_category)
+            await usermodel.add_link(message.from_user, link, new_category, dispatcher)
 
         await message.answer(f"Выбранные ссылки успешно сохранены в новую категорию '{new_category}'.", reply_markup=ReplyKeyboardRemove())
         await state.clear()
     except Exception as e:
         logger.error(f'error7486542444: {e}')
+

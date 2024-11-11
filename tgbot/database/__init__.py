@@ -27,6 +27,7 @@ async def init_db(pool):
                             username TEXT UNIQUE,
                             fullname TEXT,
                             token TEXT,
+                            notion_db_id TEXT,
                             added TIMESTAMP DEFAULT now(),
                             updated TIMESTAMP DEFAULT now(),
                             waiting BOOLEAN DEFAULT FALSE
