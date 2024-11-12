@@ -299,5 +299,8 @@ async def handle_refresh2(message: types.Message, state: FSMContext, dispatcher)
         await message.answer('Произошла ошибка при обновлении данных. Попробуйте позже.', reply_markup=ReplyKeyboardRemove())
     finally:
         await usermodel.update_waiting(userid)
+        await state.clear()
 
 
+async def handle_delete(message: types.Message, state: FSMContext, dispatcher):
+    pass
