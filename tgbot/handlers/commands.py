@@ -1,10 +1,9 @@
 from aiogram import types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 import logging
 import betterlogging as bl
-from notion_client import Client
 import re
 
 log_level = logging.INFO
@@ -19,7 +18,7 @@ class UserStages(StatesGroup):
     link_selection = State()
     category_selection = State()
     new_category = State()
-
+    get_category = State()
 
 async def start_command_handler(message: types.Message, state: FSMContext, dispatcher):
     from_user = message.from_user
@@ -83,7 +82,7 @@ async def handle_add_token(message: types.Message, state: FSMContext, dispatcher
         if result:
             await message.answer("Токен успешно добавлен.")
         else:
-            await message.answer("Токен не прошел проверку и запрос был отклонен.\n\n<b>Совет: попробуйте создать страницу вручную с названием (botlinks) и попробуйте заново</b>",parse_mode='HTML')
+            await message.answer("Токен не прошел проверку и запрос был отклонен.\n\n<b>Совет: попробуйте создать страницу с названием (botlinks) и убедитесь в том что подключили токен</b>",parse_mode='HTML')
 
     except Exception as e:
         logger.error(f'error98472652: {e}')
@@ -115,16 +114,13 @@ async def handle_message_with_links(message: types.Message, state: FSMContext, d
         if len(unique_links) == 1:
             categories = await usermodel.get_user_categories(message.from_user.id)
 
-            keyboard = ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text=f'{i}') for i in categories], [KeyboardButton(text='создать новую')]],
-                resize_keyboard=True
-            )
+            keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=f'{i}') for i in categories[j:j + 2]] for j in range(0, len(categories), 2)] + [[KeyboardButton(text='создать новую')]], resize_keyboard=True)
 
             await message.answer(f'В какую категорию вы хотите сохранить выбранные ссылки?', reply_markup=keyboard)
             await state.update_data(selected_links=unique_links)
             await state.set_state(UserStages.category_selection)
             return
-        links_message = "Найдены ссылки:\n" + "\n".join([f"{i + 1}. {link}" for i, link in enumerate(unique_links)])
+        links_message = "Найдены ссылки:\n" + "\n\n".join([f"{i + 1}. {link}" for i, link in enumerate(unique_links)])
         links_message += "\n\nВведите номера ссылок через пробел, которые хотите сохранить например: 1 2 4..."
         await message.answer(links_message)
 
@@ -161,8 +157,7 @@ async def handle_link_selection(message: types.Message, state: FSMContext, dispa
 
         categories = await usermodel.get_user_categories(user_id)
 
-        keyboard = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text=f'{i}') for i in categories[j:j + 2]] for j in range(0, len(categories), 2)] + [[KeyboardButton(text='создать новую')]], resize_keyboard=True)
+        keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=f'{i}') for i in categories[j:j + 2]] for j in range(0, len(categories), 2)] + [[KeyboardButton(text='создать новую')]], resize_keyboard=True)
         await message.answer(f'В какую категорию вы хотите сохранить выбранные ссылки?', reply_markup=keyboard)
         await state.update_data(selected_links=selected_links)
         await state.set_state(UserStages.category_selection)
@@ -216,4 +211,47 @@ async def handle_new_category(message: types.Message, state: FSMContext, dispatc
         await state.clear()
     except Exception as e:
         logger.error(f'error7486542444: {e}')
+
+async def handle_get_links(message: types.Message, state: FSMContext, dispatcher):
+    userid = message.from_user.id
+    usermodel = dispatcher['usermodel']
+
+    is_waiting = await usermodel.is_waiting(userid)
+    if is_waiting:
+        await message.answer('Пожалуйста, дождитесь ответа на предыдущий запрос.')
+        return
+
+    try:
+        categories = await usermodel.get_user_categories(userid)
+
+        keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=f'{i}') for i in categories[j:j + 2]] for j in range(0, len(categories), 2)] + [[KeyboardButton(text='все')]], resize_keyboard=True)
+        await message.answer(f'Из какой категории вы хотите получит ссылки?', reply_markup=keyboard)
+        await state.set_state(UserStages.get_category)
+    except Exception as e:
+        logger.error(f'error215853: {e}')
+
+
+async def handle_get_category(message: types.Message, state: FSMContext, dispatcher):
+    userid = message.from_user.id
+    usermodel = dispatcher['usermodel']
+
+    is_waiting = await usermodel.is_waiting(userid)
+    if is_waiting:
+        await message.answer('Пожалуйста, дождитесь ответа на предыдущий запрос.')
+        return
+
+    try:
+        category = message.text
+        links = await usermodel.get_user_links(userid, category)
+
+        if links:
+            links_count = len(links)
+            links_text = f"Общее количество ссылок: {links_count}\n\n"
+            links_text += "\n\n".join([f"{idx + 1}. {link['link']}" for idx, link in enumerate(links)])
+        else:
+            links_text = "Нет доступных ссылок в этой категории."
+
+        await message.answer(links_text, reply_markup=ReplyKeyboardRemove())
+    except Exception as e:
+        logger.error(f'error9427642: {e}')
 

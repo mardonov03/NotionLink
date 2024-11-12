@@ -86,10 +86,29 @@ class Users:
                 if token is None:
                     return
                 tokenmodel = deispatcher['tokenmodel']
-                await tokenmodel.add_link_to_notion(token)
+                await tokenmodel.add_link_to_notion(user.id, link, category, domain)
         except Exception as e:
             logger.error(f"Error saving link '{link}' for user {user.id}: {e}")
 
+    async def get_user_links(self, userid, category):
+        try:
+            async with self.pool.acquire() as conn:
+                if category == 'все':
+                    res = await conn.fetch('SELECT linkid FROM userlinks WHERE userid = $1', userid)
+                else:
+                    res = await conn.fetch('SELECT linkid FROM userlinks WHERE userid = $1 AND category = $2',userid,category)
+
+                link_ids = [row['linkid'] for row in res]
+
+                if not link_ids:
+                    return []
+
+                links = await conn.fetch('SELECT title, link FROM links WHERE linkid = ANY($1::bigint[])', link_ids)
+
+                return links
+        except Exception as e:
+            logger.error(f'error03562456: {e}')
+            return []
 
 class Tokens:
     def __init__(self, db_pool):
@@ -119,21 +138,26 @@ class Tokens:
             database_id = await self.get_or_create_notion_db(notion)
             if database_id is None:
                 return False
-            async with self.pool.acquire() as conn:
-                await conn.execute('UPDATE users SET token=$1, notion_db_id=$2, updated=$3 WHERE userid=$4',token, database_id, datetime.datetime.now(), userid)
+            await asyncio.to_thread(self._update_user_token_in_db, userid, token, database_id)
             return True
         except Exception as e:
             logger.error(f"Error updating token for user {userid}: {e}")
             return False
 
-    async def add_link_to_notion(self, userid, link, category, source):
-
+    def _update_user_token_in_db(self, userid, token, database_id):
         try:
-            async with self.pool.acquire() as conn:
-                database_id = await conn.fetchval('SELECT notion_db_id FROM users WHERE userid = $1', userid)
-                if not database_id:
-                    logger.error(f"User {userid} does not have a valid Notion database ID.")
-                    return
+            with self.pool.acquire() as conn:
+                conn.execute('UPDATE users SET token=$1, notion_db_id=$2, updated=$3 WHERE userid=$4',
+                             token, database_id, datetime.datetime.now(), userid)
+        except Exception as e:
+            logger.error(f"Error updating user token in DB: {e}")
+
+    async def add_link_to_notion(self, userid, link, category, source):
+        try:
+            database_id = await asyncio.to_thread(self._get_database_id_from_db, userid)
+            if not database_id:
+                logger.error(f"User {userid} does not have a valid Notion database ID.")
+                return
 
             notion = Client(auth=await self.get_user_token(userid))
 
@@ -145,46 +169,50 @@ class Tokens:
                     "source": {"rich_text": [{"text": {"content": source}}]},
                 }
             )
-
         except Exception as e:
             logger.error(f"Error adding link '{link}' to Notion: {e}")
 
+    def _get_database_id_from_db(self, userid):
+        try:
+            with self.pool.acquire() as conn:
+                database_id = conn.fetchval('SELECT notion_db_id FROM users WHERE userid = $1', userid)
+                return database_id
+        except Exception as e:
+            logger.error(f"Error retrieving database ID from DB: {e}")
+            return None
+
     async def get_user_token(self, userid: int) -> str:
         try:
-            async with self.pool.acquire() as conn:
-                token = await conn.fetchval('SELECT token FROM users WHERE userid = $1', userid)
-                if token:
-                    return token
-                else:
-                    raise ValueError("No token found for user")
+            token = await asyncio.to_thread(self._get_user_token_from_db, userid)
+            if token:
+                return token
+            else:
+                raise ValueError("No token found for user")
         except Exception as e:
             logger.error(f"Error retrieving token for user {userid}: {e}")
 
+    def _get_user_token_from_db(self, userid):
+        try:
+            with self.pool.acquire() as conn:
+                token = conn.fetchval('SELECT token FROM users WHERE userid = $1', userid)
+                return token
+        except Exception as e:
+            logger.error(f"Error retrieving token from DB: {e}")
+            return None
 
     async def create_and_get_page_id(self, notion) -> str:
         try:
-            pages = notion.search(filter={"property": "object", "value": "page"})
-            print(pages)
+            pages = await asyncio.to_thread(notion.search, filter={"property": "object", "value": "page"})
             for pg in pages['results']:
-                if 'title' in pg and pg['title'] and pg['title'][0]['text']['content'] == 'botlinks':
-                    page_id = pg['id']
-                    return page_id
-            try:
-                page = notion.pages.create(
-                    parent={"type": "workspace", "workspace": True},
-                    properties={
-                        "title": [{"type": "text", "text": {"content": "botlinks"}}]
-                    }
-                )
-                return page['id']
-            except Exception as e:
-                logger.info(f"info no 3244: {e}")
+                if 'properties' in pg and 'title' in pg['properties'] and pg['properties']['title']['title']:
+                    if pg['properties']['title']['title'][0]['text']['content'] == 'botlinks':
+                        page_id = pg['id']
+                        return page_id
         except Exception as e:
-            logger.error(f"Error creating BotTelegram page: {e}")
-
+            logger.error(f"Error creating botlinks page: {e}")
 
     async def get_or_create_notion_db(self, notion) -> str:
-        databases = notion.search(filter={"property": "object", "value": "database"})
+        databases = await asyncio.to_thread(notion.search, filter={"property": "object", "value": "database"})
         database_id = None
 
         for db in databases['results']:
@@ -196,9 +224,9 @@ class Tokens:
             page_id = await self.create_and_get_page_id(notion)
 
             if page_id is None:
-                return
+                return None
 
-            new_database = notion.databases.create(
+            new_database = await asyncio.to_thread(notion.databases.create,
                 parent={"page_id": page_id},
                 title=[{"type": "text", "text": {"content": "linksinbot"}}],
                 properties={
