@@ -19,6 +19,7 @@ class UserStages(StatesGroup):
     category_selection = State()
     new_category = State()
     get_category = State()
+    yes_no = State()
 
 async def start_command_handler(message: types.Message, state: FSMContext, dispatcher):
     from_user = message.from_user
@@ -254,4 +255,49 @@ async def handle_get_category(message: types.Message, state: FSMContext, dispatc
         await message.answer(links_text, reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         logger.error(f'error9427642: {e}')
+
+async def handle_refresh(message: types.Message, state: FSMContext, dispatcher):
+    userid = message.from_user.id
+    usermodel = dispatcher['usermodel']
+
+    is_waiting = await usermodel.is_waiting(userid)
+    if is_waiting:
+        await message.answer('Пожалуйста, дождитесь ответа на предыдущий запрос.')
+        return
+
+    try:
+        keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text='Да')], [KeyboardButton(text='Нет')]], resize_keyboard=True)
+        await message.answer('Эта команда обновит данные между вашей локальной базой данных и Notion аккаунтом. После того как процесс запустится, его нельзя будет остановить или отменить. Вы на это согласны?',reply_markup=keyboard)
+        await state.set_state(UserStages.yes_no)
+    except Exception as e:
+        logger.error(f'error8246715524: {e}')
+
+
+async def handle_refresh2(message: types.Message, state: FSMContext, dispatcher):
+    userid = message.from_user.id
+    usermodel = dispatcher['usermodel']
+
+    is_waiting = await usermodel.is_waiting(userid)
+    if is_waiting:
+        await message.answer('Пожалуйста, дождитесь ответа на предыдущий запрос.')
+        return
+
+    if message.text == 'Нет':
+        await message.answer('Команда отменена.', reply_markup=ReplyKeyboardRemove())
+        return
+
+    await usermodel.update_waiting(userid)
+
+    try:
+        res = await usermodel.refresh_data(message.from_user)
+        if res is None:
+            await message.answer('Нам не удалось обновить данные', reply_markup=ReplyKeyboardRemove())
+        else:
+            await message.answer('Ваши данные обновлены успешно', reply_markup=ReplyKeyboardRemove())
+    except Exception as e:
+        logger.error(f'error64275792: {e}')
+        await message.answer('Произошла ошибка при обновлении данных. Попробуйте позже.', reply_markup=ReplyKeyboardRemove())
+    finally:
+        await usermodel.update_waiting(userid)
+
 

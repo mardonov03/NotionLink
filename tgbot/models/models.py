@@ -110,6 +110,15 @@ class Users:
             logger.error(f'error03562456: {e}')
             return []
 
+    async def refresh_data(self, user):
+        token = await self.check_token_db(user)
+        if token is None:
+            return
+        try:
+            pass
+        except Exception as e:
+            logger.error(f'error7285662: {e}')
+
 class Tokens:
     def __init__(self, db_pool):
         self.pool = db_pool
@@ -125,7 +134,6 @@ class Tokens:
     def _check_notion_token_sync(self, token: str):
         notion = Client(auth=token)
         user_info = notion.users.me()
-        print(user_info)
         return True
 
     async def add_token(self, userid: int, token: str) -> bool:
