@@ -10,7 +10,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from tgbot.models.models import Users, Tokens
 from tgbot import handlers
 from tgbot.data import config
-from database import create_pool, init_db
+from tgbot.database.database import create_pool, init_db
 
 
 async def setup_logging():

@@ -1,25 +1,15 @@
 from aiogram import types
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 import logging
 import betterlogging as bl
 import re
-
+from tgbot.states.states import UserStages
+from tgbot.keyboards.keyboards import get_add_token_keyboard, get_category_keyboard, get_yes_no_keyboard, get_get_links_category_keyboard
+from aiogram.types import ReplyKeyboardRemove
 log_level = logging.INFO
 bl.basic_colorized_config(level=log_level)
 logger = logging.getLogger(__name__)
 logger.info("Starting bot")
-
-
-class UserStages(StatesGroup):
-    start = State()
-    token = State()
-    link_selection = State()
-    category_selection = State()
-    new_category = State()
-    get_category = State()
-    yes_no = State()
 
 async def start_command_handler(message: types.Message, state: FSMContext, dispatcher):
     from_user = message.from_user
@@ -33,7 +23,7 @@ async def start_command_handler(message: types.Message, state: FSMContext, dispa
     token = await usermodel.check_token_db(from_user)
     try:
         if token is None:
-            keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text='Добавить')], [KeyboardButton(text='Пропустить')]],resize_keyboard=True)
+            keyboard = get_add_token_keyboard()
             await message.answer(
                 f'Привет {from_user.first_name}\n\n'
                 'Вы можете добавить свой токен и управлять своим аккаунтом через бот',
@@ -83,7 +73,7 @@ async def handle_add_token(message: types.Message, state: FSMContext, dispatcher
         if result:
             await message.answer("Токен успешно добавлен.")
         else:
-            await message.answer("Токен не прошел проверку и запрос был отклонен.\n\n<b>Совет: попробуйте создать страницу с названием (botlinks) и убедитесь в том что подключили токен</b>",parse_mode='HTML')
+            await message.answer("Токен не прошел проверку и запрос был отклонен.\n\n<b>Совет: попробуйте создать страницу с названием (linksinbot) и убедитесь в том что подключили токен</b>",parse_mode='HTML')
 
     except Exception as e:
         logger.error(f'error98472652: {e}')
@@ -115,7 +105,7 @@ async def handle_message_with_links(message: types.Message, state: FSMContext, d
         if len(unique_links) == 1:
             categories = await usermodel.get_user_categories(message.from_user.id)
 
-            keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=f'{i}') for i in categories[j:j + 2]] for j in range(0, len(categories), 2)] + [[KeyboardButton(text='создать новую')]], resize_keyboard=True)
+            keyboard = get_category_keyboard(categories)
 
             await message.answer(f'В какую категорию вы хотите сохранить выбранные ссылки?', reply_markup=keyboard)
             await state.update_data(selected_links=unique_links)
@@ -158,7 +148,7 @@ async def handle_link_selection(message: types.Message, state: FSMContext, dispa
 
         categories = await usermodel.get_user_categories(user_id)
 
-        keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=f'{i}') for i in categories[j:j + 2]] for j in range(0, len(categories), 2)] + [[KeyboardButton(text='создать новую')]], resize_keyboard=True)
+        keyboard = get_category_keyboard(categories)
         await message.answer(f'В какую категорию вы хотите сохранить выбранные ссылки?', reply_markup=keyboard)
         await state.update_data(selected_links=selected_links)
         await state.set_state(UserStages.category_selection)
@@ -225,7 +215,7 @@ async def handle_get_links(message: types.Message, state: FSMContext, dispatcher
     try:
         categories = await usermodel.get_user_categories(userid)
 
-        keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=f'{i}') for i in categories[j:j + 2]] for j in range(0, len(categories), 2)] + [[KeyboardButton(text='все')]], resize_keyboard=True)
+        keyboard = get_get_links_category_keyboard(categories)
         await message.answer(f'Из какой категории вы хотите получит ссылки?', reply_markup=keyboard)
         await state.set_state(UserStages.get_category)
     except Exception as e:
@@ -253,6 +243,7 @@ async def handle_get_category(message: types.Message, state: FSMContext, dispatc
             links_text = "Нет доступных ссылок в этой категории."
 
         await message.answer(links_text, reply_markup=ReplyKeyboardRemove())
+        await state.clear()
     except Exception as e:
         logger.error(f'error9427642: {e}')
 
@@ -266,7 +257,7 @@ async def handle_refresh(message: types.Message, state: FSMContext, dispatcher):
         return
 
     try:
-        keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text='Да')], [KeyboardButton(text='Нет')]], resize_keyboard=True)
+        keyboard = get_yes_no_keyboard()
         await message.answer('Эта команда обновит данные между вашей локальной базой данных и Notion аккаунтом. После того как процесс запустится, его нельзя будет остановить или отменить. Вы на это согласны?',reply_markup=keyboard)
         await state.set_state(UserStages.yes_no)
     except Exception as e:
@@ -300,7 +291,6 @@ async def handle_refresh2(message: types.Message, state: FSMContext, dispatcher)
     finally:
         await usermodel.update_waiting(userid)
         await state.clear()
-
 
 async def handle_delete(message: types.Message, state: FSMContext, dispatcher):
     pass
