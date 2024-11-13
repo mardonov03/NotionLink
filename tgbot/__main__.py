@@ -10,7 +10,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from tgbot.models.models import Users, Tokens
 from tgbot import handlers
 from tgbot.data import config
-from tgbot.database.database import create_pool, init_db
+from tgbot.database.database import AsyncSessionLocal, init_db
 
 
 async def setup_logging():
@@ -35,15 +35,15 @@ async def setup_aiogram(dp: Dispatcher) -> None:
 
 async def aiogram_on_startup_polling(dispatcher: Dispatcher, bot: Bot) -> None:
     try:
-        pool = await create_pool()
-        token_model = Tokens(db_pool=pool)
-        user_model = Users(db_pool=pool)
+        pool = AsyncSessionLocal()
+        token_model = Tokens(pool)
+        user_model = Users(pool)
 
         dispatcher['db'] = pool
         dispatcher['usermodel'] = user_model
         dispatcher['tokenmodel'] = token_model
 
-        await init_db(pool)
+        await init_db()
         await setup_aiogram(dispatcher)
         logging.info("Bot started")
     except Exception as e:

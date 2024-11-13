@@ -1,111 +1,132 @@
 import asyncio
 import datetime
 import logging
-import betterlogging as bl
 from notion_client import Client
 import tldextract
-import aiohttp
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
+from tgbot.database.database import User, UserLink, Link, ForwardFrom
 
 log_level = logging.INFO
-bl.basic_colorized_config(level=log_level)
 logger = logging.getLogger(__name__)
 
 class Users:
-    def __init__(self, db_pool):
-        self.pool = db_pool
+    def __init__(self, session: AsyncSession):
+        self.session = session
 
     async def __user_exists(self, user_id: int) -> bool:
-        async with self.pool.acquire() as conn:
-            user_record = await conn.fetch('SELECT userid FROM users WHERE userid = $1', user_id)
-            return bool(user_record)
+        result = await self.session.execute(select(User).filter(User.userid == user_id))
+        return result.scalar_one_or_none() is not None
 
     async def add_user(self, user) -> None:
         try:
             if await self.__user_exists(user.id):
                 return
-
-            async with self.pool.acquire() as conn:
-                await conn.execute('INSERT INTO users (userid, fullname, username) VALUES ($1, $2, $3)',user.id, user.full_name, user.username or 'Пусто')
+            new_user = User(userid=user.id, fullname=user.full_name, username=user.username or 'Пусто')
+            self.session.add(new_user)
+            await self.session.commit()
         except Exception as e:
             logger.error(f'error677357242: {e}')
 
     async def check_token_db(self, user):
         await self.add_user(user)
         try:
-            async with self.pool.acquire() as conn:
-                token = await conn.fetchval('SELECT token FROM users WHERE userid = $1', user.id)
-                return token
+            result = await self.session.execute(select(User.token).filter(User.userid == user.id))
+            token = result.scalar_one_or_none()  # Получаем один результат или None
+            return token
         except Exception as e:
             logger.error(f'error73567652: {e}')
 
     async def is_waiting(self, userid):
         try:
-            async with self.pool.acquire() as conn:
-                result = await conn.fetchval('SELECT waiting FROM users WHERE userid = $1', userid)
-                return result
+            result = await self.session.execute(select(User.waiting).filter(User.userid == userid))
+            return result.scalar_one_or_none()
         except Exception as e:
             logger.error(f'error42685682: {e}')
 
     async def update_waiting(self, userid):
-        status_now = await self.is_waiting(userid)
-        new_status = not status_now
         try:
-            async with self.pool.acquire() as conn:
-                await conn.execute('UPDATE users SET waiting = $1 WHERE userid =$2', new_status, userid)
+            status_now = await self.is_waiting(userid)
+            new_status = not status_now
+            user = await self.session.execute(select(User).filter(User.userid == userid))
+            user = user.scalar_one_or_none()
+            if user:
+                user.waiting = new_status
+                await self.session.commit()
         except Exception as e:
             logger.error(f'error2642462: {e}')
 
     async def get_user_categories(self, userid: int):
         try:
-            async with self.pool.acquire() as conn:
-                categories = await conn.fetch('SELECT category FROM userlinks WHERE userid = $1', userid)
-                if categories:
-                    category_list = list({category['category'] for category in categories})
-                    return category_list
-                return ['other']
+            result = await self.session.execute(select(UserLink.category).filter(UserLink.userid == userid))
+            categories = result.fetchall()
+            if categories:
+                category_list = list({category.category for category in categories})
+                return category_list
+            return ['other']
         except Exception as e:
             logger.error(f'error2463467: {e}')
             return ['other']
 
-    async def add_link(self, user, link: str, category: str, deispatcher):
+    async def add_link(self, user, link: str, category: str, dispatcher, forward_from):
         try:
             extracted = tldextract.extract(link)
             domain = extracted.domain + '.' + extracted.suffix if extracted.domain and extracted.suffix else None
 
-            async with self.pool.acquire() as conn:
-                await conn.execute('INSERT INTO links (link, source, added_at) VALUES ($1, $2, $3) ON CONFLICT (link) DO NOTHING', link, domain, datetime.datetime.now())
+            # Создание ссылки в базе данных
+            new_link = Link(link=link, source=domain, added_at=datetime.datetime.now())
+            self.session.add(new_link)
+            await self.session.commit()
 
-                linkid = await conn.fetchval('SELECT linkid FROM links WHERE link = $1', link)
-                if linkid is None:
-                    logger.warning(f"Link '{link}' could not be added or retrieved from the database.")
-                    return
+            # Получаем ID добавленной ссылки
+            linkid = new_link.linkid
 
-                await conn.execute('INSERT INTO userlinks (userid, linkid, category) VALUES ($1, $2, $3) ON CONFLICT (userid, linkid) DO NOTHING', user.id, linkid, category)
+            # Добавляем ссылку в пользовательские ссылки
+            user_link = UserLink(userid=user.id, linkid=linkid, category=category)
+            self.session.add(user_link)
+            await self.session.commit()
 
-                token = await self.check_token_db(user)
-                if token is None:
-                    return
-                tokenmodel = deispatcher['tokenmodel']
-                await tokenmodel.add_link_to_notion(user.id, link, category, domain)
+            # Если есть информация о пересылке, сохраняем ее
+            if forward_from:
+                forward_info = ForwardFrom(username=forward_from[0] or 'Отсутствует', fullname=forward_from[1],
+                                           type=forward_from[2], userlinkid=user_link.userlinkid)
+                self.session.add(forward_info)
+                await self.session.commit()
+
+            # Проверка и добавление ссылки в Notion
+            token = await self.check_token_db(user)
+            if token is None:
+                return
+            tokenmodel = dispatcher['tokenmodel']
+            await tokenmodel.add_link_to_notion(user.id, link, category, domain)
         except Exception as e:
             logger.error(f"error325323677: {e}")
 
-    async def get_user_links(self, userid, category):
+    async def get_user_links_with_info(self, userid, category):
         try:
-            async with self.pool.acquire() as conn:
-                if category == 'все':
-                    res = await conn.fetch('SELECT linkid FROM userlinks WHERE userid = $1', userid)
-                else:
-                    res = await conn.fetch('SELECT linkid FROM userlinks WHERE userid = $1 AND category = $2',userid,category)
+            query = select(UserLink, Link).join(Link, Link.linkid == UserLink.linkid).filter(UserLink.userid == userid)
+            if category != 'все':
+                query = query.filter(UserLink.category == category)
+            user_links = await self.session.execute(query)
+            user_links = user_links.fetchall()
 
-                link_ids = [row['linkid'] for row in res]
+            if not user_links:
+                return []
 
-                if not link_ids:
-                    return []
+            link_data = []
+            for user_link, link in user_links:
+                user_info = await self.session.execute(select(ForwardFrom).filter(ForwardFrom.userlinkid == user_link.userlinkid))
+                user_info = user_info.scalar_one_or_none()
 
-                links = await conn.fetch('SELECT title, link FROM links WHERE linkid = ANY($1::bigint[])', link_ids)
-
-                return links
+                link_data.append({
+                    'title': link.title,
+                    'link': link.link,
+                    'username': user_info.username if user_info else None,
+                    'fullname': user_info.fullname if user_info else None,
+                    'type': user_info.type if user_info else None
+                })
+            return link_data
         except Exception as e:
             logger.error(f'error03562456: {e}')
             return []
@@ -115,13 +136,14 @@ class Users:
         if token is None:
             return
         try:
+            # Здесь можно добавить логику для обновления данных
             pass
         except Exception as e:
             logger.error(f'error7285662: {e}')
 
 class Tokens:
-    def __init__(self, db_pool):
-        self.pool = db_pool
+    def __init__(self, session: AsyncSession):
+        self.session = session
 
     async def check_notion_token(self, token: str) -> bool:
         try:
@@ -155,8 +177,13 @@ class Tokens:
 
     async def _update_user_token_in_db(self, userid, token, database_id):
         try:
-            async with self.pool.acquire() as conn:
-                await conn.execute('UPDATE users SET token=$1, notion_db_id=$2, updated=$3 WHERE userid=$4',token, database_id, datetime.datetime.now(), userid)
+            user = await self.session.execute(select(User).filter(User.userid == userid))
+            user = user.scalar_one_or_none()
+            if user:
+                user.token = token
+                user.notion_db_id = database_id
+                user.updated = datetime.datetime.now()
+                await self.session.commit()
         except Exception as e:
             logger.error(f"error8248512: {e}")
 
@@ -189,9 +216,8 @@ class Tokens:
 
     async def _get_database_id_from_db(self, userid):
         try:
-            async with self.pool.acquire() as conn:
-                database_id = await conn.fetchval('SELECT notion_db_id FROM users WHERE userid = $1', userid)
-                return database_id
+            result = await self.session.execute(select(User.notion_db_id).filter(User.userid == userid))
+            return result.scalar_one_or_none()
         except Exception as e:
             logger.error(f"Error retrieving database ID from DB: {e}")
             return None
@@ -209,15 +235,11 @@ class Tokens:
 
     async def _get_user_token_from_db(self, userid):
         try:
-            async with self.pool.acquire() as conn:
-                token = await conn.fetchval('SELECT token FROM users WHERE userid = $1', userid)
-                if token:
-                    return token
-                else:
-                    logger.warning(f"No token found for user {userid} in the database.")
-                    return None
+            result = await self.session.execute(select(User.token).filter(User.userid == userid))
+            token = result.scalar_one_or_none()
+            return token
         except Exception as e:
-            logger.error(f"error35523552452: {e}")
+            logger.error(f"error3287462: {e}")
             return None
 
     async def create_and_get_page_id(self, notion) -> str:

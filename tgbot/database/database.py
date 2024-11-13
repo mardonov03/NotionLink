@@ -1,67 +1,68 @@
-import asyncpg
-import logging
+from sqlalchemy import BigInteger, String, Text, Boolean, TIMESTAMP, Integer, ForeignKey, UniqueConstraint, Column
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.sql import func
 import os
+import logging
+from dotenv import load_dotenv
+load_dotenv()
 
-async def create_pool():
-    try:
-        pool = await asyncpg.create_pool(
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD'),
-            database=os.getenv('DB_NAME'),
-            host=os.getenv('DB_HOST'),
-            min_size=int(1),
-            max_size=int(10)
-        )
-        return pool
-    except Exception as e:
-        logging.error(f'error7669804: {e}')
+Base = declarative_base()
 
-async def init_db(pool):
-    try:
-        async with pool.acquire() as conn:
+class User(Base):
+    __tablename__ = 'users'
+    userid = Column(BigInteger, primary_key=True)
+    username = Column(Text, unique=True)
+    fullname = Column(Text)
+    token = Column(Text)
+    notion_db_id = Column(Text)
+    added = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    waiting = Column(Boolean, default=False)
 
-            await conn.execute("""
-                        CREATE TABLE IF NOT EXISTS users (
-                            userid BIGINT PRIMARY KEY,
-                            username TEXT UNIQUE,
-                            fullname TEXT,
-                            token TEXT,
-                            notion_db_id TEXT,
-                            added TIMESTAMP DEFAULT now(),
-                            updated TIMESTAMP DEFAULT now(),
-                            waiting BOOLEAN DEFAULT FALSE
-                        );
-                    """)
+class Link(Base):
+    __tablename__ = 'links'
 
-            await conn.execute("""
-                        CREATE TABLE IF NOT EXISTS links (
-                            linkid BIGSERIAL PRIMARY KEY,
-                            link TEXT UNIQUE,
-                            title TEXT,
-                            category TEXT DEFAULT 'other',
-                            priority INTEGER,
-                            source TEXT DEFAULT 'other',
-                            added_at TIMESTAMP DEFAULT now()
-                        );
-                    """)
+    linkid = Column(BigInteger, primary_key=True, autoincrement=True)
+    link = Column(Text, unique=True)
+    title = Column(Text)
+    category = Column(Text, default='other')
+    priority = Column(Integer)
+    source = Column(Text, default='other')
+    added_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-            await conn.execute("""
-                        CREATE TABLE IF NOT EXISTS userlinks (
-                            userlinkid BIGSERIAL PRIMARY KEY,
-                            userid BIGINT REFERENCES users(userid),
-                            linkid BIGINT REFERENCES links(linkid),
-                            category TEXT DEFAULT 'other', -- если будет NULL берем глобальный
-                            UNIQUE (userid, linkid)
-                        );
-                    """)
-            await conn.execute("""
-                        CREATE TABLE IF NOT EXISTS forward_from (
-                            userlinkid BIGINT REFERENCES userlinks(userlinkid),
-                            username TEXT,
-                            fullname TEXT,
-                            type TEXT --от каго переслан тип чата (бот канал пользователь)
-                        );
-                    """)
 
-    except Exception as e:
-        logging.error(f'error984962: {e}')
+class UserLink(Base):
+    __tablename__ = 'userlinks'
+
+    userlinkid = Column(BigInteger, primary_key=True, autoincrement=True)
+    userid = Column(BigInteger, ForeignKey('users.userid'))
+    linkid = Column(BigInteger, ForeignKey('links.linkid'))
+    category = Column(Text, default='other')
+
+    __table_args__ = (UniqueConstraint('userid', 'linkid'),)
+
+
+class ForwardFrom(Base):
+    __tablename__ = 'forward_from'
+
+    userlinkid = Column(BigInteger, ForeignKey('userlinks.userlinkid'), primary_key=True)
+    username = Column(Text)
+    fullname = Column(Text)
+    type = Column(Text)
+
+
+async_engine = create_async_engine(os.getenv("DATABASE_URL"), echo=True)
+
+AsyncSessionLocal = sessionmaker(async_engine, expire_on_commit=False, class_=AsyncSession)
+
+async def init_db():
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+async def get_session():
+    async with AsyncSessionLocal() as session:
+        yield session
+
+

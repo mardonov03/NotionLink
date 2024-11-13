@@ -89,6 +89,7 @@ async def handle_message_with_links(message: types.Message, state: FSMContext, d
     if is_waiting:
         await message.answer('Пожалуйста, дождитесь ответа на предыдущий запрос.')
         return
+
     try:
         text_content = message.text or message.caption
 
@@ -108,17 +109,31 @@ async def handle_message_with_links(message: types.Message, state: FSMContext, d
             keyboard = get_category_keyboard(categories)
 
             await message.answer(f'В какую категорию вы хотите сохранить выбранные ссылки?', reply_markup=keyboard)
-            await state.update_data(selected_links=unique_links)
+            forword_data = await get_forward(message)
+            await state.update_data(selected_links=unique_links, forward_from= forword_data)
             await state.set_state(UserStages.category_selection)
             return
         links_message = "Найдены ссылки:\n" + "\n\n".join([f"{i + 1}. {link}" for i, link in enumerate(unique_links)])
         links_message += "\n\nВведите номера ссылок через пробел, которые хотите сохранить например: 1 2 4..."
         await message.answer(links_message)
-
-        await state.update_data(links=unique_links)
+        forword_data = await get_forward(message)
+        await state.update_data(links=unique_links, forward_from = forword_data)
         await state.set_state(UserStages.link_selection)
     except Exception as e:
         logger.error(f'error742865: {e}')
+
+async def get_forward(message):
+    try:
+        if not message.forward_origin:
+            return
+        if message.forward_origin.type == 'user':
+            data = message.forward_from.username, message.forward_from.full_name, message.forward_origin.type
+            return data
+        elif message.forward_origin.type == 'channel' or message.forward_origin.type == 'chat':
+            data = message.forward_from_chat.username, message.forward_from_chat.title, message.forward_origin.type
+            return data
+    except Exception as e:
+        logger.error(f'error425y7224: {e}')
 
 async def handle_link_selection(message: types.Message, state: FSMContext, dispatcher):
     usermodel = dispatcher['usermodel']
@@ -168,14 +183,14 @@ async def handle_category_selection(message: types.Message, state: FSMContext, d
     try:
         data = await state.get_data()
         selected_links = data.get("selected_links", [])
-
+        forward_from = data.get("forward_from", [])
         category = message.text
         if category == 'создать новую':
             await message.answer("Введите название новой категории:", reply_markup=ReplyKeyboardRemove())
             await state.set_state(UserStages.new_category)
         else:
             for link in selected_links:
-                await usermodel.add_link(message.from_user, link, category, dispatcher)
+                await usermodel.add_link(message.from_user, link, category, dispatcher, forward_from)
             await message.answer(f"Выбранные ссылки успешно сохранены в категорию '{category}'.", reply_markup=ReplyKeyboardRemove())
             await state.clear()
     except Exception as e:
@@ -192,11 +207,15 @@ async def handle_new_category(message: types.Message, state: FSMContext, dispatc
         return
     try:
         new_category = message.text
+        if len(new_category) > 16:
+            await message.answer(f"Введите другое название максимальная длина названия - 16 символов.", reply_markup=ReplyKeyboardRemove())
+            await state.set_state(UserStages.new_category)
+            return
         data = await state.get_data()
         selected_links = data.get("selected_links", [])
-
+        forward_from = data.get("forward_from", [])
         for link in selected_links:
-            await usermodel.add_link(message.from_user, link, new_category, dispatcher)
+            await usermodel.add_link(message.from_user, link, new_category, dispatcher, forward_from)
 
         await message.answer(f"Выбранные ссылки успешно сохранены в новую категорию '{new_category}'.", reply_markup=ReplyKeyboardRemove())
         await state.clear()
@@ -233,12 +252,17 @@ async def handle_get_category(message: types.Message, state: FSMContext, dispatc
 
     try:
         category = message.text
-        links = await usermodel.get_user_links(userid, category)
-
+        links = await usermodel.get_user_links_with_info(userid, category)
         if links:
             links_count = len(links)
             links_text = f"Общее количество ссылок: {links_count}\n\n"
-            links_text += "\n\n".join([f"{idx + 1}. {link['link']}" for idx, link in enumerate(links)])
+            links_text += "\n\n".join([
+                f"{idx + 1}. "
+                f"{f'({", ".join(filter(None, [link.get("fullname", ""), link.get("username", ""), link.get("type", "")]))})' if any([link.get('fullname'), link.get('username'), link.get('type')]) else '(Вы)'}\n"
+                f"{link['link']}"
+                for idx, link in enumerate(links)
+                if any([link.get('fullname'), link.get('username'), link.get('type')]) or link.get('link')
+            ])
         else:
             links_text = "Нет доступных ссылок в этой категории."
 
@@ -246,6 +270,8 @@ async def handle_get_category(message: types.Message, state: FSMContext, dispatc
         await state.clear()
     except Exception as e:
         logger.error(f'error9427642: {e}')
+
+
 
 async def handle_refresh(message: types.Message, state: FSMContext, dispatcher):
     userid = message.from_user.id

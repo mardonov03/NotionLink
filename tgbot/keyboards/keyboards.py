@@ -9,7 +9,6 @@ def get_add_token_keyboard():
         resize_keyboard=True
     )
 
-# Клавиатура для выбора категорий
 def get_category_keyboard(categories):
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -19,7 +18,6 @@ def get_category_keyboard(categories):
         resize_keyboard=True
     )
 
-# Клавиатура для подтверждения обновления данных
 def get_yes_no_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -29,7 +27,6 @@ def get_yes_no_keyboard():
         resize_keyboard=True
     )
 
-# Клавиатура для запроса категории при получении ссылок
 def get_get_links_category_keyboard(categories):
     return ReplyKeyboardMarkup(
         keyboard=[
