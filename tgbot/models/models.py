@@ -3,13 +3,17 @@ import datetime
 import logging
 from notion_client import Client
 import tldextract
+import betterlogging as bl
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
 from tgbot.database.database import User, UserLink, Link, ForwardFrom
-
+from bs4 import BeautifulSoup
+import aiohttp
+import json
 log_level = logging.INFO
+bl.basic_colorized_config(level=log_level)
 logger = logging.getLogger(__name__)
+
 
 class Users:
     def __init__(self, session: AsyncSession):
@@ -33,7 +37,7 @@ class Users:
         await self.add_user(user)
         try:
             result = await self.session.execute(select(User.token).filter(User.userid == user.id))
-            token = result.scalar_one_or_none()  # Получаем один результат или None
+            token = result.scalar_one_or_none()
             return token
         except Exception as e:
             logger.error(f'error73567652: {e}')
@@ -70,38 +74,55 @@ class Users:
             return ['other']
 
     async def add_link(self, user, link: str, category: str, dispatcher, forward_from):
+        linkmodel = dispatcher['linkmodel']
         try:
             extracted = tldextract.extract(link)
             domain = extracted.domain + '.' + extracted.suffix if extracted.domain and extracted.suffix else None
+            if domain:
+                domain = domain.split('.')[0]
+            metadata = await linkmodel.fetch_metadata(link)
 
-            # Создание ссылки в базе данных
-            new_link = Link(link=link, source=domain, added_at=datetime.datetime.now())
+            meta_title = metadata.get('title', 'Без названия')
+            meta_category = metadata.get('category', 'Без описания')
+
+            existing_link = await self.session.execute(
+                select(Link).where(Link.link == link)
+            )
+            existing_link = existing_link.scalar()
+
+            if existing_link is not None:
+                return False, link
+
+            new_link = Link(link=link, source=domain, added_at=datetime.datetime.now(), title= meta_title, category= meta_category)
             self.session.add(new_link)
             await self.session.commit()
 
-            # Получаем ID добавленной ссылки
             linkid = new_link.linkid
 
-            # Добавляем ссылку в пользовательские ссылки
             user_link = UserLink(userid=user.id, linkid=linkid, category=category)
             self.session.add(user_link)
             await self.session.commit()
 
-            # Если есть информация о пересылке, сохраняем ее
             if forward_from:
-                forward_info = ForwardFrom(username=forward_from[0] or 'Отсутствует', fullname=forward_from[1],
-                                           type=forward_from[2], userlinkid=user_link.userlinkid)
+                forward_info = ForwardFrom(
+                    username=forward_from[0] or 'Отсутствует',
+                    fullname=forward_from[1],
+                    type=forward_from[2],
+                    userlinkid=user_link.userlinkid
+                )
                 self.session.add(forward_info)
                 await self.session.commit()
 
-            # Проверка и добавление ссылки в Notion
             token = await self.check_token_db(user)
             if token is None:
                 return
             tokenmodel = dispatcher['tokenmodel']
-            await tokenmodel.add_link_to_notion(user.id, link, category, domain)
+            await tokenmodel.add_link_to_notion(user.id, link, category, domain, meta_title)
+
+            return True
         except Exception as e:
             logger.error(f"error325323677: {e}")
+            return False, link
 
     async def get_user_links_with_info(self, userid, category):
         try:
@@ -136,7 +157,6 @@ class Users:
         if token is None:
             return
         try:
-            # Здесь можно добавить логику для обновления данных
             pass
         except Exception as e:
             logger.error(f'error7285662: {e}')
@@ -146,6 +166,7 @@ class Tokens:
         self.session = session
 
     async def check_notion_token(self, token: str) -> bool:
+        print('check_notion_token')
         try:
             notion_result = await asyncio.to_thread(self._check_notion_token_sync, token)
             return notion_result
@@ -154,6 +175,7 @@ class Tokens:
             return False
 
     def _check_notion_token_sync(self, token: str):
+        print('_check_notion_token_sync')
         notion = Client(auth=token)
         user_info = notion.users.me()
         return True
@@ -164,7 +186,9 @@ class Tokens:
             return False
 
         try:
+            print('statustrue')
             notion = Client(auth=token)
+            print(token)
             database_id = await self.get_or_create_notion_db(notion)
             if database_id is None:
                 return False
@@ -187,7 +211,7 @@ class Tokens:
         except Exception as e:
             logger.error(f"error8248512: {e}")
 
-    async def add_link_to_notion(self, userid, link, category, source):
+    async def add_link_to_notion(self, userid, link, category, source, title):
         try:
 
             token = await self.get_user_token(userid)
@@ -205,7 +229,8 @@ class Tokens:
             notion.pages.create(
                 parent={"database_id": database_id},
                 properties={
-                    "link": {"title": [{"text": {"content": link if link else ""}}]},  # Проверка для пустого значения
+                    "title": {"title": [{"text": {"content": title if title else ""}}]},
+                    "link": {"url": link if link else ""},
                     "category": {"rich_text": [{"text": {"content": category if category else ""}}]},
                     "source": {"rich_text": [{"text": {"content": source if source else ""}}]},
                 }
@@ -247,7 +272,7 @@ class Tokens:
             pages = await asyncio.to_thread(notion.search, filter={"property": "object", "value": "page"})
             for pg in pages['results']:
                 if 'properties' in pg and 'title' in pg['properties'] and pg['properties']['title']['title']:
-                    if pg['properties']['title']['title'][0]['text']['content'] == 'botlinks':
+                    if pg['properties']['title']['title'][0]['text']['content'] == 'linksinbot':
                         page_id = pg['id']
                         return page_id
         except Exception as e:
@@ -269,14 +294,65 @@ class Tokens:
                 return None
 
             new_database = await asyncio.to_thread(notion.databases.create,
-                parent={"page_id": page_id},
-                title=[{"type": "text", "text": {"content": "linksinbot"}}],
-                properties={
-                    "link": {"type": "title", "title": {}},
-                    "category": {"type": "rich_text", "rich_text": {}},
-                    "source": {"type": "rich_text", "rich_text": {}}
-                }
-            )
+            parent={"page_id": page_id},
+            title=[{"type": "text", "text": {"content": "linksinbot"}}],
+            properties={
+                "title": {"type": "title", "title": {}},
+                "link": {"type": "url", "url": {}},
+                "category": {"type": "rich_text", "rich_text": {}},
+                "source": {"type": "rich_text", "rich_text": {}},})
             database_id = new_database['id']
 
         return database_id
+
+
+class Links:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def fetch_metadata(self, url: str) -> dict:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    html = await response.text()
+
+            soup = BeautifulSoup(html, 'html.parser')
+
+            title = soup.title.string if soup.title else 'Неизвестно'
+            category = None
+            source = url
+
+            for meta in soup.find_all('meta'):
+                if meta.get('property', '').lower() == 'og:title':
+                    title = meta.get('content', title)
+
+                if meta.get('property', '').lower() == 'og:type':
+                    category = meta.get('content', category)
+
+                if meta.get('name', '').lower() == 'twitter:title':
+                    title = meta.get('content', title)
+
+                if meta.get('name', '').lower() == 'category':
+                    category = meta.get('content', category)
+
+                if meta.get('name', '').lower() == 'source':
+                    source = meta.get('content', source)
+
+            script_tags = soup.find_all('script', type='application/ld+json')
+            for script in script_tags:
+                try:
+                    json_data = json.loads(script.string)
+                    if isinstance(json_data, dict) and 'category' in json_data:
+                        category = json_data.get('category', category)
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке JSON-LD: {e}")
+
+            return {
+                'title': title,
+                'category': category,
+                'source': source
+            }
+
+        except Exception as e:
+            logger.error(f"Ошибка при получении мета-данных: {e}")
+            return {}
