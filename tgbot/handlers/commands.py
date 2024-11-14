@@ -189,10 +189,13 @@ async def handle_category_selection(message: types.Message, state: FSMContext, d
             await message.answer("Введите название новой категории:", reply_markup=ReplyKeyboardRemove())
             await state.set_state(UserStages.new_category)
         else:
+            await usermodel.update_waiting(message.from_user.id)
+            await message.answer('Мы передали ссылку на проверку, пожалуйста, подождите.', reply_markup= ReplyKeyboardRemove())
             for link in selected_links:
                 await usermodel.add_link(message.from_user, link, category, dispatcher, forward_from)
             await message.answer(f"Выбранные ссылки успешно сохранены в категорию '{category}'.", reply_markup=ReplyKeyboardRemove())
             await state.clear()
+            await usermodel.update_waiting(message.from_user.id)
     except Exception as e:
         logger.error(f'error356263254: {e}')
 
@@ -211,14 +214,18 @@ async def handle_new_category(message: types.Message, state: FSMContext, dispatc
             await message.answer(f"Введите другое название максимальная длина названия - 16 символов.", reply_markup=ReplyKeyboardRemove())
             await state.set_state(UserStages.new_category)
             return
+
         data = await state.get_data()
         selected_links = data.get("selected_links", [])
         forward_from = data.get("forward_from", [])
+        await usermodel.update_waiting(message.from_user.id)
+        await message.answer('Мы передали ссылку на проверку, пожалуйста, подождите.', reply_markup= ReplyKeyboardRemove())
         for link in selected_links:
             await usermodel.add_link(message.from_user, link, new_category, dispatcher, forward_from)
 
         await message.answer(f"Выбранные ссылки успешно сохранены в новую категорию '{new_category}'.", reply_markup=ReplyKeyboardRemove())
         await state.clear()
+        await usermodel.update_waiting(message.from_user.id)
     except Exception as e:
         logger.error(f'error7486542444: {e}')
 

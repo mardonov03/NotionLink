@@ -83,8 +83,8 @@ class Users:
             metadata = await linkmodel.fetch_metadata(link)
 
             meta_title = metadata.get('title', 'Без названия')
-            meta_category = metadata.get('category', 'Без описания')
-
+            meta_category = metadata.get('category', 'other')
+            meta_source = metadata.get('source', domain)
             existing_link = await self.session.execute(
                 select(Link).where(Link.link == link)
             )
@@ -93,7 +93,7 @@ class Users:
             if existing_link is not None:
                 return False, link
 
-            new_link = Link(link=link, source=domain, added_at=datetime.datetime.now(), title= meta_title, category= meta_category)
+            new_link = Link(link=link, source=meta_source, added_at=datetime.datetime.now(), title= meta_title, category= meta_category)
             self.session.add(new_link)
             await self.session.commit()
 
@@ -117,7 +117,7 @@ class Users:
             if token is None:
                 return
             tokenmodel = dispatcher['tokenmodel']
-            await tokenmodel.add_link_to_notion(user.id, link, category, domain, meta_title)
+            await tokenmodel.add_link_to_notion(user.id, link, category, meta_source, meta_title)
 
             return True
         except Exception as e:
@@ -166,7 +166,6 @@ class Tokens:
         self.session = session
 
     async def check_notion_token(self, token: str) -> bool:
-        print('check_notion_token')
         try:
             notion_result = await asyncio.to_thread(self._check_notion_token_sync, token)
             return notion_result
@@ -175,7 +174,6 @@ class Tokens:
             return False
 
     def _check_notion_token_sync(self, token: str):
-        print('_check_notion_token_sync')
         notion = Client(auth=token)
         user_info = notion.users.me()
         return True
@@ -186,9 +184,7 @@ class Tokens:
             return False
 
         try:
-            print('statustrue')
             notion = Client(auth=token)
-            print(token)
             database_id = await self.get_or_create_notion_db(notion)
             if database_id is None:
                 return False
@@ -270,6 +266,7 @@ class Tokens:
     async def create_and_get_page_id(self, notion) -> str:
         try:
             pages = await asyncio.to_thread(notion.search, filter={"property": "object", "value": "page"})
+            print(pages)
             for pg in pages['results']:
                 if 'properties' in pg and 'title' in pg['properties'] and pg['properties']['title']['title']:
                     if pg['properties']['title']['title'][0]['text']['content'] == 'linksinbot':
