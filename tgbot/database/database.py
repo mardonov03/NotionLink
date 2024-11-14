@@ -28,7 +28,6 @@ class Link(Base):
     link = Column(Text, unique=True)
     title = Column(Text)
     category = Column(Text, default='other')
-    priority = Column(Integer)
     source = Column(Text, default='other')
     added_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -40,7 +39,7 @@ class UserLink(Base):
     userid = Column(BigInteger, ForeignKey('users.userid'))
     linkid = Column(BigInteger, ForeignKey('links.linkid'))
     category = Column(Text, default='other')
-
+    priority = Column(Integer)
     __table_args__ = (UniqueConstraint('userid', 'linkid'),)
 
 

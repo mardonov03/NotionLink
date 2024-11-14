@@ -8,3 +8,4 @@ class UserStages(StatesGroup):
     new_category = State()
     get_category = State()
     yes_no = State()
+    select_priority =State()

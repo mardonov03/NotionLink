@@ -35,3 +35,7 @@ def get_get_links_category_keyboard(categories):
         ] + [[KeyboardButton(text='все')]],
         resize_keyboard=True
     )
+
+def get_priority_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=str(i)) for i in range(j, j + 2)]for j in range(1, 11, 2)],resize_keyboard=True)

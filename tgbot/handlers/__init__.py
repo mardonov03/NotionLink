@@ -9,7 +9,7 @@ from tgbot.handlers.commands import (
     handle_link_selection,
     handle_message_with_links,
     handle_category_selection,
-    handle_new_category, handle_get_links, handle_get_category, handle_refresh2, handle_refresh, handle_delete
+    handle_new_category, handle_get_links, handle_get_category, handle_refresh2, handle_refresh, handle_delete, handle_priority_selection
 )
 from tgbot.states.states import UserStages
 
@@ -28,6 +28,8 @@ def setup() -> Router:
     router.message.register(handle_new_category, StateFilter(UserStages.new_category))
     router.message.register(handle_get_category, StateFilter(UserStages.get_category))
     router.message.register(handle_refresh2, StateFilter(UserStages.yes_no))
+    router.message.register(handle_priority_selection, UserStages.select_priority)
+
 
     router.message.register(
         handle_message_with_links,

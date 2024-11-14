@@ -73,7 +73,7 @@ class Users:
             logger.error(f'error2463467: {e}')
             return ['other']
 
-    async def add_link(self, user, link: str, category: str, dispatcher, forward_from):
+    async def add_link(self, user, link: str, category: str, dispatcher, forward_from, priority):
         linkmodel = dispatcher['linkmodel']
         try:
             extracted = tldextract.extract(link)
@@ -85,21 +85,20 @@ class Users:
             meta_title = metadata.get('title', 'Без названия')
             meta_category = metadata.get('category', 'other')
             meta_source = metadata.get('source', domain)
-            existing_link = await self.session.execute(
-                select(Link).where(Link.link == link)
-            )
+            existing_link = await self.session.execute(select(Link).where(Link.link == link))
             existing_link = existing_link.scalar()
 
             if existing_link is not None:
                 return False, link
 
-            new_link = Link(link=link, source=meta_source, added_at=datetime.datetime.now(), title= meta_title, category= meta_category)
+            new_link = Link(link=link, source=meta_source, added_at=datetime.datetime.now(), title= meta_title, category = meta_category)
             self.session.add(new_link)
             await self.session.commit()
 
             linkid = new_link.linkid
-
-            user_link = UserLink(userid=user.id, linkid=linkid, category=category)
+            print('categoryyyyyyyy')
+            print(category)
+            user_link = UserLink(userid=user.id, linkid=linkid, category=category, priority= priority)
             self.session.add(user_link)
             await self.session.commit()
 
@@ -117,7 +116,7 @@ class Users:
             if token is None:
                 return
             tokenmodel = dispatcher['tokenmodel']
-            await tokenmodel.add_link_to_notion(user.id, link, category, meta_source, meta_title)
+            await tokenmodel.add_link_to_notion(user.id, link, category, meta_source, meta_title, priority)
 
             return True
         except Exception as e:
@@ -207,7 +206,7 @@ class Tokens:
         except Exception as e:
             logger.error(f"error8248512: {e}")
 
-    async def add_link_to_notion(self, userid, link, category, source, title):
+    async def add_link_to_notion(self, userid, link, category, source, title, priority):
         try:
 
             token = await self.get_user_token(userid)
@@ -229,6 +228,7 @@ class Tokens:
                     "link": {"url": link if link else ""},
                     "category": {"rich_text": [{"text": {"content": category if category else ""}}]},
                     "source": {"rich_text": [{"text": {"content": source if source else ""}}]},
+                    "priority": {"rich_text": [{"text": {"content": priority if priority else ""}}]}
                 }
             )
 
@@ -265,15 +265,21 @@ class Tokens:
 
     async def create_and_get_page_id(self, notion) -> str:
         try:
+
             pages = await asyncio.to_thread(notion.search, filter={"property": "object", "value": "page"})
-            print(pages)
-            for pg in pages['results']:
-                if 'properties' in pg and 'title' in pg['properties'] and pg['properties']['title']['title']:
-                    if pg['properties']['title']['title'][0]['text']['content'] == 'linksinbot':
+
+            for pg in pages.get('results', []):
+                properties = pg.get('properties', {})
+                title = properties.get('title', {}).get('title', [])
+
+                for item in title:
+                    content = item.get('text', {}).get('content')
+                    if content and content.strip() == 'linksinbot':
                         page_id = pg['id']
                         return page_id
         except Exception as e:
             logger.error(f"error02480485312: {e}")
+
 
     async def get_or_create_notion_db(self, notion) -> str:
         databases = await asyncio.to_thread(notion.search, filter={"property": "object", "value": "database"})
@@ -297,7 +303,8 @@ class Tokens:
                 "title": {"type": "title", "title": {}},
                 "link": {"type": "url", "url": {}},
                 "category": {"type": "rich_text", "rich_text": {}},
-                "source": {"type": "rich_text", "rich_text": {}},})
+                "source": {"type": "rich_text", "rich_text": {}},
+                "priority": {"type": "rich_text", "rich_text": {}}})
             database_id = new_database['id']
 
         return database_id

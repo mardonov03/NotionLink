@@ -4,7 +4,7 @@ import logging
 import betterlogging as bl
 import re
 from tgbot.states.states import UserStages
-from tgbot.keyboards.keyboards import get_add_token_keyboard, get_category_keyboard, get_yes_no_keyboard, get_get_links_category_keyboard
+from tgbot.keyboards.keyboards import get_add_token_keyboard, get_category_keyboard, get_yes_no_keyboard, get_get_links_category_keyboard, get_priority_keyboard
 from aiogram.types import ReplyKeyboardRemove
 log_level = logging.INFO
 bl.basic_colorized_config(level=log_level)
@@ -180,22 +180,18 @@ async def handle_category_selection(message: types.Message, state: FSMContext, d
     if is_waiting:
         await message.answer('Пожалуйста, дождитесь ответа на предыдущий запрос.')
         return
+
     try:
-        data = await state.get_data()
-        selected_links = data.get("selected_links", [])
-        forward_from = data.get("forward_from", [])
         category = message.text
+
         if category == 'создать новую':
             await message.answer("Введите название новой категории:", reply_markup=ReplyKeyboardRemove())
             await state.set_state(UserStages.new_category)
         else:
-            await usermodel.update_waiting(message.from_user.id)
-            await message.answer('Мы передали ссылку на проверку, пожалуйста, подождите.', reply_markup= ReplyKeyboardRemove())
-            for link in selected_links:
-                await usermodel.add_link(message.from_user, link, category, dispatcher, forward_from)
-            await message.answer(f"Выбранные ссылки успешно сохранены в категорию '{category}'.", reply_markup=ReplyKeyboardRemove())
-            await state.clear()
-            await usermodel.update_waiting(message.from_user.id)
+            await state.update_data(category=category)
+            await message.answer('Выберите важность (priority)', reply_markup=get_priority_keyboard())
+            await state.set_state(UserStages.select_priority)
+
     except Exception as e:
         logger.error(f'error356263254: {e}')
 
@@ -215,19 +211,50 @@ async def handle_new_category(message: types.Message, state: FSMContext, dispatc
             await state.set_state(UserStages.new_category)
             return
 
+        await state.update_data(category=new_category)
+        await message.answer('Выберите важность (priority)', reply_markup=get_priority_keyboard())
+        await state.set_state(UserStages.select_priority)
+
+    except Exception as e:
+        logger.error(f'error7486542444: {e}')
+
+
+async def handle_priority_selection(message: types.Message, state: FSMContext, dispatcher):
+    usermodel = dispatcher['usermodel']
+    user_id = message.from_user.id
+
+    is_waiting = await usermodel.is_waiting(user_id)
+    if is_waiting:
+        await message.answer('Пожалуйста, дождитесь ответа на предыдущий запрос.')
+        return
+
+    try:
+        priority = message.text
+        if not priority.isdigit() or not (1 <= int(priority) <= 10):
+            await message.answer("Пожалуйста, выберите приоритет числом от 1 до 10.")
+            return
+
+        await usermodel.update_waiting(user_id)
+
         data = await state.get_data()
         selected_links = data.get("selected_links", [])
         forward_from = data.get("forward_from", [])
-        await usermodel.update_waiting(message.from_user.id)
-        await message.answer('Мы передали ссылку на проверку, пожалуйста, подождите.', reply_markup= ReplyKeyboardRemove())
-        for link in selected_links:
-            await usermodel.add_link(message.from_user, link, new_category, dispatcher, forward_from)
+        category = data.get("category")
+        priority = int(priority)
 
-        await message.answer(f"Выбранные ссылки успешно сохранены в новую категорию '{new_category}'.", reply_markup=ReplyKeyboardRemove())
+        await message.answer('Мы передали ссылку на проверку, пожалуйста, подождите.',reply_markup=ReplyKeyboardRemove())
+
+        for link in selected_links:
+            await usermodel.add_link(message.from_user, link, category, dispatcher, forward_from, priority=priority)
+
+        await message.answer(f"Выбранные ссылки успешно сохранены в категорию '{category}' с приоритетом {priority}.",reply_markup=ReplyKeyboardRemove())
+
         await state.clear()
-        await usermodel.update_waiting(message.from_user.id)
+        await usermodel.update_waiting(user_id)
+
     except Exception as e:
-        logger.error(f'error7486542444: {e}')
+        logger.error(f'error653672: {e}')
+
 
 async def handle_get_links(message: types.Message, state: FSMContext, dispatcher):
     userid = message.from_user.id
