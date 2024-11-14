@@ -220,7 +220,7 @@ class Tokens:
             if not database_id:
                 logger.error(f"User {userid} does not have a valid Notion database ID.")
                 return
-
+            print(22222222222222)
             notion.pages.create(
                 parent={"database_id": database_id},
                 properties={
@@ -228,7 +228,7 @@ class Tokens:
                     "link": {"url": link if link else ""},
                     "category": {"rich_text": [{"text": {"content": category if category else ""}}]},
                     "source": {"rich_text": [{"text": {"content": source if source else ""}}]},
-                    "priority": {"rich_text": [{"text": {"content": priority if priority else ""}}]}
+                    "priority": {"number": priority if priority is not None else 0}
                 }
             )
 
@@ -304,7 +304,7 @@ class Tokens:
                 "link": {"type": "url", "url": {}},
                 "category": {"type": "rich_text", "rich_text": {}},
                 "source": {"type": "rich_text", "rich_text": {}},
-                "priority": {"type": "rich_text", "rich_text": {}}})
+                "priority": {"type": "number", "number": {}}})
             database_id = new_database['id']
 
         return database_id
