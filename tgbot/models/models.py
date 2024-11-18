@@ -220,7 +220,7 @@ class Tokens:
             if not database_id:
                 logger.error(f"User {userid} does not have a valid Notion database ID.")
                 return
-            print(22222222222222)
+
             notion.pages.create(
                 parent={"database_id": database_id},
                 properties={
